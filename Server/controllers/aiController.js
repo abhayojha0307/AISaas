@@ -4,7 +4,7 @@ const { default: axios } = require("axios");
 const { arrayBuffer } = require("stream/consumers");
 const { v2 } = require("cloudinary");
 const fs = require("fs");
-const pdf = require("pdf-parse");
+const pdfParse = require("pdf-parse")
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -118,15 +118,15 @@ const generateImage = async (req, res) => {
 const removeBackground = async (req, res) => {
   try {
     const { userId } = req.auth();
-    const { image } = req.file;
+    const image  = req.file;
     const form = new FormData();
-    form.append("prompt", prompt);
+    form.append("image_file", fs.createReadStream(image.path));
 
     // Upload to Cloudinary
     const uploadResult = await v2.uploader.upload(image.path, {
       transformation: [
         {
-          effect: "background-removal",
+          effect: "background_removal",
           background_removal: "remove_the_background",
         },
       ],
@@ -137,7 +137,7 @@ const removeBackground = async (req, res) => {
     // Save to DB
     await sql`
       INSERT INTO creations (user_id, prompt, content, type)
-      VALUES (${userId}, "Remove background from the image", ${secure_url}, 'image')
+      VALUES (${userId}, 'Remove background from the image', ${secure_url}, 'image')
       RETURNING *
     `;
 
@@ -151,41 +151,60 @@ const removeBackground = async (req, res) => {
 const removeObject = async (req, res) => {
   try {
     const { userId } = req.auth();
-    const { image } = req.file;
+    const image = req.file;
     const { object } = req.body;
 
-    // Upload to Cloudinary
-    const { public_id } = await v2.uploader.upload(image.path);
+    if (!image) {
+      return res.status(400).json({ success: false, error: "Image not provided" });
+    }
 
-    const imageUrl = v2.url(public_id, {
-      transformation: [
-        {
-          effect: `gen_remove${object}`,
-        },
-      ],
+    if (!object) {
+      return res.status(400).json({ success: false, error: "Object to remove is required" });
+    }
+
+    // 1️⃣ Upload Original Image
+    const uploadResult = await v2.uploader.upload(image.path, {
+      folder: "aisaas",
       resource_type: "image",
     });
 
-    const secure_url = uploadResult.secure_url;
+    const public_id = uploadResult.public_id;
 
-    // Save to DB
+    // 2️⃣ Generate transformation URL with object removal
+    const imageUrl = v2.url(`${public_id}.png`, {
+      transformation: [
+        {
+          effect: `gen_remove:${object}`,   // <-- IMPORTANT CHANGE
+        },
+      ],
+    });
+
+    // 3️⃣ Save to DB
     await sql`
       INSERT INTO creations (user_id, prompt, content, type)
       VALUES (${userId}, ${`Remove ${object} from image`}, ${imageUrl}, 'image')
-      RETURNING *
     `;
 
     res.status(200).json({ success: true, content: imageUrl });
+
   } catch (error) {
     console.error("SERVER ERROR:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
+
 const reviewResume = async (req, res) => {
   try {
     const { userId } = req.auth();
     const resume = req.file;
+
+    if (!resume) {
+      return res.json({
+        success: false,
+        message: "No resume uploaded",
+      });
+    }
 
     if (resume.size > 5 * 1024 * 1024) {
       return res.json({
@@ -193,11 +212,22 @@ const reviewResume = async (req, res) => {
         message: "Resume size is more than 5MB",
       });
     }
-    const dataBuffer = fs.readFileSync(resume.path);
-    const pdfData = await pdf(dataBuffer);
 
-    const prompt = `Review the following resume and provide constructive 
-    feedback on its strength ,weakness and area of improvement. Resume content: \n\n${pdfData.text}`;
+    const dataBuffer = fs.readFileSync(resume.path);
+
+    // ✔ FIXED — Use pdfParse (NOT pdf, NOT .default)
+    const pdfData = await pdfParse(dataBuffer);
+
+    const prompt = `
+      Review the following resume and provide:
+      - Strengths
+      - Weaknesses
+      - Areas for improvement
+      - ATS optimization tips
+      
+      Resume content:
+      ${pdfData.text}
+    `;
 
     const response = await openai.chat.completions.create({
       model: "gemini-2.0-flash",
@@ -207,18 +237,20 @@ const reviewResume = async (req, res) => {
     });
 
     const content = response.choices[0].message.content;
-    // Save to DB
+
     await sql`
       INSERT INTO creations (user_id, prompt, content, type)
-      VALUES (${userId}, "Review the uploaded resume", ${content}, 'review-resume')
-      RETURNING *
+      VALUES (${userId}, ${"Review the uploaded resume"}, ${content}, 'review-resume')
     `;
 
-    res.status(200).json({ success: true, content: content });
+    res.status(200).json({ success: true, content });
+
   } catch (error) {
     console.error("SERVER ERROR:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+
 
 module.exports = { generateArticle, generateBlogTitle, generateImage, removeBackground,removeObject,reviewResume };
