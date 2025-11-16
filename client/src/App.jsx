@@ -11,18 +11,12 @@ import RemoveBackground from './pages/RemoveBackground.jsx';
 import RemoveObject from './pages/RemoveObject.jsx';
 import ReviewResume from './pages/ReviewResume.jsx';
 import { useAuth } from '@clerk/clerk-react';
+import {Toaster} from 'react-hot-toast'
 
 const App = () => {
-  const {getToken}=useAuth();
-  useEffect(()=>{
-    const fetchToken=async()=>{
-      const token=await getToken();
-      console.log("Clerk Token:",token);
-    }
-    fetchToken();
-  },[])
   return (
     <div>
+      <Toaster/>
       <Routes>
         <Route path="/" element={<Home/>}/>
         <Route path="/ai" element={<Layout/>}>
