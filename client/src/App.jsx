@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { use, useEffect } from 'react'
 import { Route, Routes } from 'react-router-dom';
 import Home from './pages/Home.jsx';
 import BlogTitle from './pages/BlogTitle.jsx';
@@ -10,8 +10,17 @@ import GenerateImages from './pages/GenerateImages.jsx';
 import RemoveBackground from './pages/RemoveBackground.jsx';
 import RemoveObject from './pages/RemoveObject.jsx';
 import ReviewResume from './pages/ReviewResume.jsx';
+import { useAuth } from '@clerk/clerk-react';
 
 const App = () => {
+  const {getToken}=useAuth();
+  useEffect(()=>{
+    const fetchToken=async()=>{
+      const token=await getToken();
+      console.log("Clerk Token:",token);
+    }
+    fetchToken();
+  },[])
   return (
     <div>
       <Routes>
